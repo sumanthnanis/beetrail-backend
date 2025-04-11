@@ -11,11 +11,10 @@ const { Parser } = require('json2csv');
 
 const app = express();
 
-// Middleware
+
 app.use(express.json());
 app.use(morgan('dev'));
 
-// Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -23,11 +22,6 @@ mongoose.connect(process.env.MONGO_URI, {
 .then(() => console.log('MongoDB connected'))
 .catch(err => console.error('MongoDB connection error:', err));
 
-/* ============================
-   Schema Definitions
-============================= */
-
-// Hive Schema – stores hive logs with unique hiveId and timestamped creation.
 const hiveSchema = new mongoose.Schema({
   hiveId: { type: String, required: true, unique: true },
   datePlaced: { type: Date, required: true },
@@ -38,29 +32,32 @@ const hiveSchema = new mongoose.Schema({
 });
 const Hive = mongoose.model('Hive', hiveSchema);
 
-// Crop Schema – stores flowering crop data. Location is stored as GeoJSON for geospatial queries.
 const cropSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  floweringStart: { type: Date, required: true },
-  floweringEnd: { type: Date, required: true },
-  recommendedHiveDensity: { type: Number, required: true },
-  location: {
-    type: {
-      type: String,
-      enum: ['Point'],
-      default: 'Point'
+    name: { type: String, required: true },
+    floweringStart: { type: Date, required: true },
+    floweringEnd: { type: Date, required: true },
+    recommendedHiveDensity: { type: Number, required: true },
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number], 
+        required: true
+      }
     },
-    coordinates: {
-      type: [Number], // [longitude, latitude]
-      required: true,
-      index: '2dsphere'
-    }
-  },
-  dateCreated: { type: Date, default: Date.now }
-});
-const Crop = mongoose.model('Crop', cropSchema);
+    dateCreated: { type: Date, default: Date.now }
+  });
+  
+  
+  cropSchema.index({ location: '2dsphere' });
+  
+  const Crop = mongoose.model('Crop', cropSchema);
+  
 
-// User Schema – for authentication and authorization.
+
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
@@ -68,14 +65,9 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-/* ============================
-   JWT Authentication Middleware
-============================= */
-
-// Middleware to verify JWT token and attach user info to request
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  // Expect header format: "Bearer <token>"
+ 
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Access token required' });
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
@@ -85,7 +77,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Middleware to require admin role
+
 const requireAdmin = (req, res, next) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
@@ -93,9 +85,7 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-/* ============================
-   Swagger API Documentation Setup
-============================= */
+
 
 const swaggerOptions = {
   definition: {
@@ -123,7 +113,7 @@ const swaggerOptions = {
       bearerAuth: []
     }],
   },
-  apis: ['./server.js'], // use this file for API annotations
+  apis: ['./server.js'], 
 };
 
 const swaggerSpecs = swaggerJsdoc(swaggerOptions);
@@ -233,12 +223,12 @@ app.post('/auth/register', [
   }
   const { username, password, role } = req.body;
   try {
-    // Check if username already exists
+    
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ error: 'Username already exists' });
     }
-    // Hash the password before saving
+    
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
     const user = new User({ username, password: hashedPassword, role });
@@ -290,12 +280,12 @@ app.post('/auth/login', [
     if (!isMatch) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
-    // Create payload including a sync token (timestamp)
+   
     const payload = {
       id: user._id,
       username: user.username,
       role: user.role,
-      syncToken: Date.now() // for offline sync purposes
+      syncToken: Date.now() 
     };
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
     return res.json({ token, syncToken: payload.syncToken });
@@ -305,9 +295,7 @@ app.post('/auth/login', [
   }
 });
 
-/* ============================
-   Hive Log Endpoints
-============================= */
+
 
 /**
  * @swagger
@@ -341,7 +329,7 @@ app.post('/api/hives', authenticateToken, [
   }
   const { hiveId, datePlaced, latitude, longitude, numColonies } = req.body;
   try {
-    // Enforce unique hiveId
+    
     const existingHive = await Hive.findOne({ hiveId });
     if (existingHive) {
       return res.status(400).json({ error: 'hiveId must be unique' });
@@ -420,9 +408,6 @@ app.get('/api/hives', authenticateToken, async (req, res) => {
   }
 });
 
-/* ============================
-   Crop Calendar Endpoints
-============================= */
 
 /**
  * @swagger
@@ -471,7 +456,6 @@ app.post('/api/crops', authenticateToken, [
     return res.status(400).json({ errors: errors.array() });
   }
   let { name, floweringStart, floweringEnd, latitude, longitude, recommendedHiveDensity } = req.body;
-  // Validate that floweringStart is before floweringEnd
   if(new Date(floweringStart) >= new Date(floweringEnd)){
     return res.status(400).json({ error: 'floweringStart must be before floweringEnd' });
   }
@@ -549,7 +533,7 @@ app.get('/api/crops/nearby', authenticateToken, [
       location: {
         $near: {
           $geometry: { type: "Point", coordinates: [longitude, latitude] },
-          $maxDistance: radius * 1000 // convert km to meters
+          $maxDistance: radius * 1000 
         }
       },
       floweringStart: { $lte: queryDate },
@@ -565,9 +549,6 @@ app.get('/api/crops/nearby', authenticateToken, [
   }
 });
 
-/* ============================
-   CSV Export Endpoints (Admin Only)
-============================= */
 
 /**
  * @swagger
@@ -614,7 +595,6 @@ app.get('/export/hives', authenticateToken, requireAdmin, async (req, res) => {
 app.get('/export/crops', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const crops = await Crop.find({});
-    // Convert location GeoJSON back to latitude/longitude for CSV export.
     const data = crops.map(crop => ({
       name: crop.name,
       floweringStart: crop.floweringStart,
@@ -637,9 +617,6 @@ app.get('/export/crops', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
-/* ============================
-   Sync Endpoint for Offline Apps
-============================= */
 
 /**
  * @swagger
@@ -657,9 +634,6 @@ app.get('/sync', authenticateToken, (req, res) => {
   res.json({ syncToken });
 });
 
-/* ============================
-   Basic Admin Dashboard Route
-============================= */
 
 app.get('/admin', authenticateToken, requireAdmin, (req, res) => {
   res.send(`
