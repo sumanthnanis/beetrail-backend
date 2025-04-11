@@ -1,4 +1,3 @@
-```markdown
 # BeeTrail Backend API
 
 This repository contains the backend API for the BeeTrail Field Logger app. The service enables beekeepers to log hive placements, retrieve nearby crop pollination opportunities, and manage crop calendars. The backend is built using Node.js, Express, and MongoDB.
